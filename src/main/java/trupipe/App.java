@@ -1,27 +1,22 @@
 package trupipe;
 
+import java.util.Arrays;
+import java.util.Iterator;
+import java.util.function.Supplier;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.FileInputStream;
 import java.io.OutputStream;
 import java.io.InputStream;
-import java.util.Arrays;
 import java.io.File;
-import coderslagoon.tclib.container.Header;
-import coderslagoon.tclib.container.Header.Type;
-import coderslagoon.tclib.container.Volume;
-import coderslagoon.tclib.crypto.AES256;
-import coderslagoon.tclib.crypto.BlockCipher;
-import coderslagoon.tclib.crypto.RIPEMD160;
-import coderslagoon.tclib.crypto.Rand;
+import java.io.IOException;
+import java.io.RandomAccessFile;
 import coderslagoon.tclib.util.Password;
 import coderslagoon.tclib.util.TCLibException;
-import java.io.IOException;
-import java.util.Iterator;
 
 public class App {
 
-    public static void main(String[] args) {
+    public static void main(String[] args) throws TCLibException, IOException {
         Iterator<String> argv = Arrays.stream(args).iterator();
         String arg, out = null, pwd = null, in = null;
         long volSize = -1L;
@@ -44,21 +39,30 @@ public class App {
                 in = argv.next();
             } else if (arg.equals("--pass") && argv.hasNext()) {
                 pwd = argv.next();
+            } else if (arg.equals("--block-size") && argv.hasNext()) {
+                argv.next();
+            } else if (arg.equals("--hash") && argv.hasNext()) {
+                argv.next();
+            } else if (arg.equals("--algorithm") && argv.hasNext()) {
+                argv.next();
             } else {
                 System.err.format("Invalid Argument \"%s\"\n", arg);
                 System.exit(1);
             }
         }
-
+        // Password
         Password pass = null;
         if ((null == pwd) && (null != (arg = System.getenv("TRUPIPE_PASSWORD"))) && !arg.isEmpty()) {
             pwd = arg;
         } else if ((null == pwd) && (null != (arg = System.getenv("PASSWORD"))) && !arg.isEmpty()) {
             pwd = arg;
         }
-
         if (null == pwd) {
-            throw new RuntimeException("No password");
+            try {
+                pass = new Password(System.console().readPassword("Password> "), null);
+            } catch (TCLibException e) {
+                throw new RuntimeException(e);
+            }
         } else {
             try {
                 pass = new Password(pwd.toCharArray(), null);
@@ -66,29 +70,43 @@ public class App {
                 throw new RuntimeException(e);
             }
         }
-
+        // Sink
         OutputStream so = null;
+        Supplier<RandomAccessFile> upt = null;
         if ((out == null) || out.equals("-")) {
             so = System.out;
-            out = "-";
-            // ~ System.err.format("Pipe out\n");
+            System.err.format("Sink: stdout\n");
         } else if (out.equals("NUL")) {
             so = new NullOutputStream();
+            System.err.format("Sink: null\n");
         } else {
+            System.err.format("Sink: file %s\n", out);
             try {
+                String rwfile = out;
                 so = new FileOutputStream(out);
+                upt = () -> {
+                    try {
+                        return new RandomAccessFile(rwfile, "rw");
+                    } catch (FileNotFoundException ex) {
+                        throw new RuntimeException(ex);
+                    }
+                };
             } catch (FileNotFoundException e) {
                 throw new RuntimeException(e);
             }
         }
-        so = new java.io.BufferedOutputStream(so, 64 * 1024);
-
+        so = new java.io.BufferedOutputStream(so, 1024 * 1024);
+        // Source
         InputStream si = null;
         if ((in == null) || in.equals("-")) {
             si = System.in;
-            in = "-";
-            // ~ System.err.format("Pipe in\n");
+            System.err.format("Source: stdin\n");
+        } else if (in.startsWith("|")) {
+            in = in.substring(1);
+            System.err.format("Source: command \"%s\"\n", in);
+            si = Runtime.getRuntime().exec(in).getInputStream();
         } else {
+            System.err.format("Source: file %s\n", in);
             try {
                 si = new FileInputStream(in);
             } catch (FileNotFoundException e) {
@@ -99,117 +117,9 @@ public class App {
                 volSize = f.length();
             }
         }
-        si = new java.io.BufferedInputStream(si, 64 * 1024);
-
-        System.err.format(
-                "Encrypt %d bytes, %d bytes/block \"%s\" -> \"%s\"\n", volSize,
-                Header.BLOCK_SIZE, in, out);
-
-        if ((volSize < 0) && (null != (arg = System.getenv("TRUPIPE_SIZE"))) && !arg.isEmpty()) {
-            volSize = Long.parseLong(arg);
-        } else if ((volSize < 0) && (null != (arg = System.getenv("SIZE"))) && !arg.isEmpty()) {
-            volSize = Long.parseLong(arg);
-        }
-        if (volSize < 0) {
-            throw new RuntimeException("No Size");
-        } else if (volSize < Header.BLOCK_SIZE) {
-            throw new RuntimeException("Size too small");
-        } else if (volSize > (1125899906842624L - (Header.BLOCK_COUNT
-                * Header.BLOCK_SIZE * 2))) {
-            throw new RuntimeException("Size too big");
-        } else if (0 != (volSize % Header.BLOCK_SIZE)) {
-            volSize -= volSize % Header.BLOCK_SIZE;
-            System.err.format("Size Adjusted to %d\n", volSize);
-        }
-
-        byte[] buf;
-        try {
-            long blk = 0;
-            Rand rnd = Rand.wrap(Rand.secure());
-
-            Header hdr = new Header(Type.TRUECRYPT, RIPEMD160.class, AES256.class);
-            // Main header
-            hdr.generateSalt(rnd);
-            hdr.generateKeyMaterial(rnd);
-
-            rnd.make(hdr.salt);
-            hdr.sizeofHiddenVolume = 0L;
-            hdr.sizeofVolume = volSize;
-            hdr.dataAreaOffset = Header.OFS_DATA_AREA;
-            hdr.dataAreaSize = volSize;
-            hdr.flags = 0;
-            hdr.reserved3 = null;
-            hdr.hiddenVolumeHeader = null;
-            hdr.version = Header.Type.TRUECRYPT.lowestHeader;
-            hdr.minimumVersion = Header.Type.TRUECRYPT.lowestApp;
-            // Backup header
-            buf = hdr.encode(pass.data());
-            System.err.format("@%d Header, %d bytes %d blocks\n", blk,
-                    buf.length, buf.length / Header.BLOCK_SIZE);
-
-            so.write(buf);
-            blk += (buf.length / Header.BLOCK_SIZE);
-
-            // Data
-            Volume vol = new Volume(BlockCipher.Mode.ENCRYPT, hdr);
-            long blocks = volSize / Header.BLOCK_SIZE;
-            buf = new byte[Header.BLOCK_SIZE];
-            System.err.format("@%d Writing Data %d bytes %d blocks\n", blk, volSize,
-                    blocks);
-            for (; blocks > 0; --blocks) {
-                if (null == si) {
-                    Arrays.fill(buf, (byte) 0);
-                } else {
-                    int off = 0, r = 0, len = buf.length;
-                    while ((len > 0) && ((r = si.read(buf, off, len)) > 0)) {
-                        off += r;
-                        len -= r;
-                    }
-                    if (off < buf.length) {
-                        System.err.format("@%d Padding %d off, %d len\n",
-                                blk, off, buf.length);
-                        Arrays.fill(buf, off > 0 ? off : 0, buf.length,
-                                (byte) 0);
-                        // si.close();
-                        si = null;
-                    }
-                }
-                vol.processBlock(blk, buf, 0);
-
-                so.write(buf);
-                blk += (buf.length / Header.BLOCK_SIZE);
-            }
-            int off = 0, r = 0;
-            if ((null != si) && ((r = si.read(buf, 0, buf.length)) > 0)) {
-                off += r;
-                System.err.format("@%d Cutting Input", blk);
-                while (((r = si.read(buf, 0, buf.length)) > 0)) {
-                    off += r;
-                    System.err.print(".");
-                }
-                System.err.format("\n");
-            }
-            // Backup header
-            hdr.generateSalt(rnd);
-            buf = hdr.encode(pass.data());
-            System.err.format("@%d Header, %d bytes %d blocks\n", blk,
-                    buf.length, buf.length / Header.BLOCK_SIZE);
-            so.write(buf);
-            blk += (buf.length / Header.BLOCK_SIZE);
-            // Done
-            so.close();
-            // Check size
-            File f = new File(out);
-            if (f.exists()) {
-                long s1 = f.length();
-                long s2 = (Header.BLOCK_COUNT * Header.BLOCK_SIZE) + volSize
-                        + (Header.BLOCK_COUNT * Header.BLOCK_SIZE);
-                System.err.format("Size of \"%s\" %d %d expected\n", out, s1,
-                        s2);
-            }
-        } catch (TCLibException | IOException e) {
-            throw new RuntimeException(e);
-        }
+        si = new java.io.BufferedInputStream(si, 1024 * 1024);
+        // Write
+        TruPipe.main(pass, so, si, volSize, upt);
     }
 }
 /*
@@ -222,4 +132,5 @@ mvn install:install-file -Dfile=trupax.jar -DgroupId=com.coderslagoon -Dartifact
  </dependency>
 
  pushd K:\wrx\java\trupipe
+mee --cd  K:\wrx\java\trupipe -- mvn-pe package
  */
