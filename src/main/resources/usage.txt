@@ -1,0 +1,31 @@
+Name
+   trupipe.jar -- Create Truecrypt file container from standard input or
+   file image
+Description
+   trupipe.jar is a Java application to create Truecrypt file container
+   from standard input or file image.
+Synopsis
+   java trupipe.jar [--pass TEXT] [--out SINK] [--in SOURCE] [--size
+   BYTES] [--vera] [--ripemd160] [--sha512] [--[no-]backup-header]
+Arguments
+   Main option.
+   --pass TEXT
+          The password. If not given, looks for TRUPIPE_PASSWORD
+          environment variable. Or asks from console input (if possible).
+   --out SINK
+          The encrypted file container to output. "-" for stdout.
+   --in SOURCE
+          The source image to be encrypted. "-" for stdin. "|command arg1
+          arg2" to pipe command output. Otherwise the file path.
+   --size BYTES
+          The size of data source. If not given. The size of source file
+          is used. If size of source can not be determine (e.g. stdin).
+          Backup header is added, main header is invalid.
+   --vera
+          Use VeraCrypt format instead of TrueCrypt
+   --ripemd160
+          Use HMAC-RIPEMD-160 header key derivation function
+   --sha512
+          Use HMAC-SHA-512 header key derivation function
+   --[no-]backup-header
+          Add backup header.

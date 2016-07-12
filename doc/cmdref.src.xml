@@ -1,0 +1,68 @@
+<cmdopt command="java trupipe.jar">
+
+    <opt name="pass" choice="opt" rep="norepeat" group-id="main">
+        <replaceable>TEXT</replaceable>
+        <description>
+            <para>The password.
+                If not given, looks for <varname>TRUPIPE_PASSWORD</varname> environment variable.
+                Or asks from console input (if possible).</para>
+        </description>
+    </opt>
+
+    <opt name="out" choice="opt" rep="norepeat" group-id="main">
+        <replaceable>SINK</replaceable>
+        <description>
+            <para>The encrypted file container to output. <quote>-</quote> for stdout.</para>            
+        </description>
+    </opt>
+	
+    <opt name="in" choice="opt" rep="norepeat" group-id="main">
+        <replaceable>SOURCE</replaceable>
+        <description>
+            <para>The source image to be encrypted.
+                <quote>-</quote> for stdin.
+                <quote>|command arg1 arg2</quote> to pipe command output.
+                Otherwise the file path.
+            </para>
+        </description>
+    </opt>
+    
+    <opt name="size" choice="opt" rep="norepeat" group-id="main">
+        <replaceable>BYTES</replaceable>
+        <description>
+            <para>The size of data source.
+                If not given. The size of source file is used.
+                If size of source can not be determine (e.g. stdin). Backup header is added, main header is invalid.</para>
+        </description>
+    </opt>
+    
+    <opt name="vera" choice="opt" rep="norepeat" group-id="main">
+        <description>
+            <para>Use VeraCrypt format instead of TrueCrypt</para>
+        </description>
+    </opt>
+    
+    <opt name="ripemd160" choice="opt" rep="norepeat" group-id="main">
+        <description>
+            <para>Use HMAC-RIPEMD-160 header key derivation function</para>
+        </description>
+    </opt>
+
+    <opt name="sha512" choice="opt" rep="norepeat" group-id="main">
+        <description>
+            <para>Use HMAC-SHA-512 header key derivation function</para>
+        </description>
+    </opt>
+    
+    <opt name="backup-header" choice="opt" rep="norepeat" negatable="1" group-id="main">
+        <description>
+            <para>Add backup header.</para>
+        </description>
+    </opt>
+
+    <cmd-group group-id="main">
+        <description>
+            <para>Main option.</para>
+        </description>
+    </cmd-group>
+</cmdopt>

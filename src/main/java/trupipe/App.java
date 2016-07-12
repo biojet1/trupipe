@@ -1,38 +1,39 @@
 package trupipe;
 
+import java.util.Arrays;
+import java.util.Iterator;
+import java.util.function.Supplier;
+import java.util.StringTokenizer;
+import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
+import java.io.FileInputStream;
+import java.io.OutputStream;
+import java.io.InputStream;
+import java.io.IOException;
+import java.io.RandomAccessFile;
+import java.io.BufferedInputStream;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.lang.ProcessBuilder.Redirect;
 import coderslagoon.tclib.container.Header;
 import coderslagoon.tclib.crypto.AES256;
 import coderslagoon.tclib.crypto.BlockCipher;
 import coderslagoon.tclib.crypto.Hash;
 import coderslagoon.tclib.crypto.RIPEMD160;
 import coderslagoon.tclib.crypto.SHA512;
-import java.util.Arrays;
-import java.util.Iterator;
-import java.util.function.Supplier;
-import java.io.FileNotFoundException;
-import java.io.FileOutputStream;
-import java.io.FileInputStream;
-import java.io.OutputStream;
-import java.io.InputStream;
-import java.io.File;
-import java.io.IOException;
-import java.io.RandomAccessFile;
 import coderslagoon.tclib.util.Password;
 import coderslagoon.tclib.util.TCLibException;
-import java.io.BufferedInputStream;
-import java.io.BufferedReader;
-import static java.lang.Compiler.command;
-import java.lang.ProcessBuilder.Redirect;
-import java.util.StringTokenizer;
 
 public class App {
 
     public static void main(String[] args) throws TCLibException, IOException {
-        String arg, out = null, pwd = null, in = null;
+        String arg, out = null, pwd = null, in = null, empty = null;
         Class<? extends Hash.Function> hash = null;
         Class<? extends BlockCipher> cipher = null;
-        long volSize = -1L;
-        int backupHeader = -1;
+        long volSize = 0;
+        int backupHeader = -1, dryRun = -1;
         Header.Type type = null;
         Iterator<String> argv = Arrays.stream(args).iterator();
         for (int dash = 0; argv.hasNext();) {
@@ -42,26 +43,27 @@ public class App {
                     in = arg;
                 } else if (out == null) {
                     out = arg;
+                } else if (volSize == 0) {
+                    if (!arg.isEmpty()) {
+                        volSize = Long.parseLong(arg);
+                    }
+                } else if (pwd == null) {
+                    if (!arg.isEmpty()) {
+                        pwd = arg;
+                    }
                 } else {
                     throw new RuntimeException(String.format("Invalid Argument \"%s\"\n", arg));
                 }
             } else if ("--".equals(arg)) {
                 dash = 2;
-            } else if (arg.equals("--help")) {
-
-            } else if (arg.equals("--version")) {
-                System.err.println(App.class.getPackage()
-                        .getImplementationVersion());
-            } else if (arg.equals("--size") && argv.hasNext()) {
-                volSize = Long.parseLong(argv.next());
-            } else if (arg.equals("--out") && argv.hasNext()) {
-                out = argv.next();
             } else if (arg.equals("--in") && argv.hasNext()) {
                 in = argv.next();
+            } else if (arg.equals("--out") && argv.hasNext()) {
+                out = argv.next();
+            } else if (arg.equals("--size") && argv.hasNext()) {
+                volSize = Long.parseLong(argv.next());
             } else if (arg.equals("--pass") && argv.hasNext()) {
                 pwd = argv.next();
-            } else if (arg.equals("--block-size") && argv.hasNext()) {
-                argv.next();
             } else if (arg.equals("--ripemd160")) {
                 hash = RIPEMD160.class;
             } else if (arg.equals("--sha512")) {
@@ -72,6 +74,20 @@ public class App {
                 backupHeader = 1;
             } else if (arg.equals("--no-backup-header")) {
                 backupHeader = 0;
+            } else if (arg.equals("--blank") && argv.hasNext()) {
+                empty = argv.next();
+            } else if (arg.equals("--act")) {
+                dryRun = 0;
+            } else if (arg.equals("--block-size") && argv.hasNext()) {
+                argv.next();
+            } else if (arg.equals("--help")) {
+                (new BufferedReader(new InputStreamReader(ClassLoader.getSystemResourceAsStream("usage.txt"))))
+                        .lines().forEach(l -> System.out.println(l));
+                return;
+            } else if (arg.equals("--version")) {
+                System.err.println(App.class.getPackage()
+                        .getImplementationVersion());
+                return;
             } else {
                 System.err.format("Invalid Argument \"%s\"\n", arg);
                 System.exit(1);
@@ -104,6 +120,30 @@ public class App {
             } catch (TCLibException e) {
                 throw new RuntimeException(e);
             }
+        }
+        // Type
+        if (type == null) {
+            type = Header.Type.TRUECRYPT;
+        }
+        // Header
+        Header hdr;
+        hdr = new Header(type, hash, cipher);
+        hdr.version = type.lowestHeader;
+        hdr.minimumVersion = type.lowestApp;
+        hdr.sizeofHiddenVolume = 0L;
+        hdr.dataAreaOffset = Header.OFS_DATA_AREA;
+        hdr.sizeofVolume = volSize;
+        hdr.dataAreaSize = volSize;
+        hdr.flags = 0;
+        hdr.reserved3 = null;
+        hdr.hiddenVolumeHeader = null;
+        if (empty != null) {
+            System.err.format("%s %s/%s\n", new String(type.magic), hdr.hashFunction.getSimpleName(), hdr.blockCipher.getSimpleName());
+            try (RandomAccessFile raf = new RandomAccessFile(empty, "rw")) {
+                // Write
+                TruPipe.empty(pass, raf, hdr, backupHeader, dryRun != 0);
+            }
+            return;
         }
         // Sink
         OutputStream so = null;
@@ -158,28 +198,12 @@ public class App {
             } catch (FileNotFoundException e) {
                 throw new RuntimeException(e);
             }
-            if (volSize < 0) {
-                File f = new File(in);
-                volSize = f.length();
+            if (volSize <= 0) {
+                volSize = Files.size(Paths.get(in));
             }
         }
         si = new java.io.BufferedInputStream(si, 1024 * 1024);
-        // Type
-        if (type == null) {
-            type = Header.Type.TRUECRYPT;
-        }
-        // Header
-        Header hdr;
-        hdr = new Header(type, hash, cipher);
-        hdr.version = type.lowestHeader;
-        hdr.minimumVersion = type.lowestApp;
-        hdr.sizeofHiddenVolume = 0L;
-        hdr.dataAreaOffset = Header.OFS_DATA_AREA;
-        hdr.sizeofVolume = volSize;
-        hdr.dataAreaSize = volSize;
-        hdr.flags = 0;
-        hdr.reserved3 = null;
-        hdr.hiddenVolumeHeader = null;
+
 //        System.err.println(hdr.toString());
         System.err.format("%s %s/%s\n", new String(type.magic), hdr.hashFunction.getSimpleName(), hdr.blockCipher.getSimpleName());
         // Write
@@ -198,14 +222,4 @@ mvn install:install-file -Dfile=trupax.jar -DgroupId=com.coderslagoon -Dartifact
  pushd K:\wrx\java\trupipe
 mee --cd  K:\wrx\java\trupipe -- mvn-pe package
 
-    public Process  [More ...] exec(String command, String[] envp, File dir)
-        throws IOException {
-        if (command.length() == 0)
-            throw new IllegalArgumentException("Empty command");
-        StringTokenizer st = new StringTokenizer(command);
-        String[] cmdarray = new String[st.countTokens()];
-        for (int i = 0; st.hasMoreTokens(); i++)
-            cmdarray[i] = st.nextToken();
-        return exec(cmdarray, envp, dir);
-    }
  */

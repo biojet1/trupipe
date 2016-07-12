@@ -17,11 +17,11 @@ public class TruPipe {
 
     public static void write(final Password pass, final OutputStream so, InputStream si, final Header hdr, final Supplier<RandomAccessFile> upd, int backupHeader) throws TCLibException, IOException {
         try {
-            Rand rnd = Rand.wrap(Rand.secure());
+            final Rand rnd = Rand.wrap(Rand.secure());
             hdr.generateSalt(rnd);
             hdr.generateKeyMaterial(rnd);
             rnd.make(hdr.salt);
-            long volSize = hdr.sizeofVolume;
+            final long volSize = hdr.sizeofVolume;
             // Main header
             byte[] buf = hdr.encode(pass.data());
             long blk = 0;
@@ -63,7 +63,7 @@ public class TruPipe {
                 volSizeActual += buf.length;
                 blk += (buf.length / blockSize);
                 if ((volSizeActual % (32 * 1024 * 1024)) == 0) {
-                    System.err.format("@%9d %.2fMiB... \r", blk, volSizeActual / (1024.0 * 1024.0));
+                    System.err.format("@%9d %7.2fMiB Encryted... \r", blk, volSizeActual / (1024.0 * 1024.0));
                 }
             }
             // Volume done
@@ -90,6 +90,7 @@ public class TruPipe {
                     so.close();
                     try (RandomAccessFile rw = upd.get()) {
                         hdr.generateSalt(rnd);
+                        rnd.make(hdr.salt);
                         buf = hdr.encode(pass.data());
                         System.err.format("@%9d Main header %dB %d blocks\n", 0,
                                 buf.length, buf.length / Header.BLOCK_SIZE);
@@ -101,6 +102,48 @@ public class TruPipe {
         } finally {
             hdr.erase();
             pass.erase();
+        }
+    }
+
+    public static void empty(final Password pass, RandomAccessFile raf, final Header hdr, int backupHeader, boolean dryRun) throws TCLibException, IOException {
+        Rand rnd = Rand.wrap(Rand.secure());
+        hdr.generateSalt(rnd);
+        hdr.generateKeyMaterial(rnd);
+        rnd.make(hdr.salt);
+        long length = raf.length();
+        boolean bh = (backupHeader > 0) || (backupHeader < 0);
+        if ((length % Header.BLOCK_SIZE) != 0) {
+            throw new RuntimeException(String.format("Device length not modulu %d%%%d == %d", length, Header.BLOCK_SIZE, length % Header.BLOCK_SIZE));
+        }
+        long volSizeActual = length - ((Header.BLOCK_SIZE * Header.BLOCK_COUNT) * (bh ? 2 : 1));
+        if (volSizeActual < Header.BLOCK_SIZE) {
+            throw new RuntimeException(String.format("Device length too small %d / %d", volSizeActual, length));
+        }
+        System.err.format("Device %dB, Volume %dB %d blocks%s\n", length, volSizeActual, volSizeActual / Header.BLOCK_SIZE, dryRun ? " [DRY-RUN]" : "");
+//
+        hdr.sizeofVolume = volSizeActual;
+        hdr.dataAreaSize = volSizeActual;
+        // Main header
+        byte[] buf = hdr.encode(pass.data());
+        long blk = 0;
+        System.err.format("@%10d Header %dB %d blocks (Main)\n", blk,
+                buf.length, buf.length / Header.BLOCK_SIZE);
+        raf.seek(blk);
+        if (!dryRun) {
+            raf.write(buf);
+        }
+        // Backup header
+        if (bh) {
+            hdr.generateSalt(rnd);
+            rnd.make(hdr.salt);
+            buf = hdr.encode(pass.data());
+            blk = length - (Header.BLOCK_SIZE * Header.BLOCK_COUNT);
+            System.err.format("@%10d Header %dB %d blocks (Backup)\n", blk,
+                    buf.length, buf.length / Header.BLOCK_SIZE);
+            raf.seek(blk);
+            if (!dryRun) {
+                raf.write(buf);
+            }
         }
     }
 }

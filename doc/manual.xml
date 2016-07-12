@@ -1,0 +1,24 @@
+<?xml version="1.0" ?>
+<refentry xmlns:xlink="http://www.w3.org/1999/xlink">
+    <refmeta>
+        <refentrytitle>trupipe.jar</refentrytitle>
+        <manvolnum>0</manvolnum>
+    </refmeta>
+    <refnamediv>
+        <refname>trupipe.jar</refname>
+        <refpurpose>Create Truecrypt file container from standard input or file image</refpurpose>
+    </refnamediv>
+    <refsect1>
+        <title>Description</title>
+        <para role="excerpt">
+            <command>trupipe.jar</command> is a <link xlink:href='http://www.java.com/'>Java</link> application to create Truecrypt file container from standard input or file image.
+        </para>
+    </refsect1>
+    <refsynopsisdiv>
+        <xi:include href="../target/cmdref.xml" xpointer="xpointer(refentry/refsynopsisdiv/*)" xmlns:xi="http://www.w3.org/2001/XInclude" />
+    </refsynopsisdiv>
+    <refsect1>
+        <title>Arguments</title>
+        <xi:include href="../target/cmdref.xml" xpointer="xpointer(refentry/refsect/*)" xmlns:xi="http://www.w3.org/2001/XInclude" />
+    </refsect1>
+</refentry>
